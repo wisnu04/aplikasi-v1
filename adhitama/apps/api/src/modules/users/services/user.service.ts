@@ -6,7 +6,6 @@ import {
   BadRequestException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { PrismaService } from '@infrastructure/prisma';
 import { PasswordService } from '@infrastructure/password';
 import { UserRepository } from '../repositories/user.repository';
 import type { CreateUserData, UpdateUserData } from '../repositories/user.repository';
@@ -115,7 +114,6 @@ export class UserService {
     private readonly userRepository: UserRepository,
     private readonly passwordService: PasswordService,
     private readonly nipHelper: NipHelper,
-    private readonly prismaService: PrismaService,
   ) {}
 
   // ─── Public Methods ────────────────────────────────────────
@@ -419,10 +417,7 @@ export class UserService {
     roleId: string,
     tenantId: string,
   ): Promise<{ id: string; name: string }> {
-    const role = await this.prismaService.role.findFirst({
-      where: { id: roleId, tenantId },
-      select: { id: true, name: true },
-    });
+    const role = await this.userRepository.findRoleById(roleId, tenantId);
 
     if (!role) {
       throw new BadRequestException(
@@ -477,8 +472,7 @@ export class UserService {
    * Queries the count of active OWNER users in the tenant.
    * If this user IS an OWNER and is the only active one — reject.
    *
-   * Uses prismaService directly for the role name lookup since
-   * UserRepository only works with user IDs, not role names.
+   * Uses repository lookups for role name and owner counting.
    */
   private async assertNotLastOwner(
     userId: string,
@@ -486,24 +480,17 @@ export class UserService {
     roleId: string,
   ): Promise<void> {
     // Check if this user's role is the OWNER role
-    const role = await this.prismaService.role.findFirst({
-      where: { id: roleId, tenantId },
-      select: { name: true },
-    });
+    const role = await this.userRepository.findRoleById(roleId, tenantId);
 
     if (role?.name !== OWNER_ROLE_NAME) {
       return; // Not an OWNER — no protection needed
     }
 
     // Count active OWNER users in this tenant
-    const activeOwnerCount = await this.prismaService.user.count({
-      where: {
-        tenantId,
-        deletedAt: null,
-        status: 'ACTIVE',
-        role: { name: OWNER_ROLE_NAME },
-      },
-    });
+    const activeOwnerCount = await this.userRepository.countActiveUsersByRoleName(
+      OWNER_ROLE_NAME,
+      tenantId,
+    );
 
     if (activeOwnerCount <= 1) {
       throw new UnprocessableEntityException(

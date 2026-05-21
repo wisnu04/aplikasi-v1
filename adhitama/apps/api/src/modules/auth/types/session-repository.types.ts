@@ -51,6 +51,10 @@ export interface SessionRecord {
   createdAt: Date;
 }
 
+export interface SessionWithHash extends SessionRecord {
+  refreshTokenHash: string;
+}
+
 /**
  * SessionForRevocation — minimal shape needed to confirm revoke operations.
  * Returned by revoke() and revokeAll() to confirm what was affected.

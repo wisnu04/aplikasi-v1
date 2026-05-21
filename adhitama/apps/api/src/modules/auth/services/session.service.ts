@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PasswordService } from '@infrastructure/password';
 import { SessionRepository } from '../repositories/session.repository';
@@ -169,6 +169,132 @@ export class SessionService {
     );
 
     return count;
+  }
+
+  /**
+   * Verify ownership of a refresh token before rotation.
+   *
+   * This protects against stolen/old refresh tokens by checking:
+   *   1) session exists and is active
+   *   2) raw refresh token matches the stored hash
+   *   3) stale or revoked sessions trigger logout-all
+   *
+   * @param rawRefreshToken - Raw refresh token presented by the client
+   * @param sessionId        - Session ID embedded in the token payload
+   * @param userId           - User ID embedded in the token payload
+   * @param tenantId         - Tenant ID embedded in the token payload
+   * @returns Active SessionRecord when ownership is validated
+   */
+  async verifyRefreshTokenOwnership(
+    rawRefreshToken: string,
+    sessionId: string,
+    userId: string,
+    tenantId: string,
+  ): Promise<SessionRecord> {
+    const activeSession = await this.sessionRepository.findActiveSessionById(
+      sessionId,
+      userId,
+    );
+
+    if (!activeSession) {
+      const staleSession = await this.sessionRepository.findSessionById(
+        sessionId,
+        userId,
+      );
+
+      if (staleSession) {
+        this.logger.warn(
+          `Refresh replay or stale session used — userId=${userId}, sessionId=${sessionId}`,
+        );
+        await this.sessionRepository.revokeAll(userId, tenantId);
+      }
+
+      throw new UnauthorizedException(
+        'Refresh token is invalid or has already been used.',
+      );
+    }
+
+    const tokenMatches = await this.passwordService.verify(
+      rawRefreshToken,
+      activeSession.refreshTokenHash,
+    );
+
+    if (!tokenMatches) {
+      this.logger.warn(
+        `Refresh replay detected — userId=${userId}, sessionId=${sessionId}`,
+      );
+
+      await this.sessionRepository.revokeAll(userId, tenantId);
+
+      throw new UnauthorizedException(
+        'Refresh token is invalid or has already been used.',
+      );
+    }
+
+    return activeSession;
+  }
+
+  /**
+   * Rotate an existing session atomically.
+   *
+   * The old session is revoked and the replacement session is created in a
+   * single database transaction. Concurrent refresh attempts cannot both
+   * succeed because the old session is only revoked once.
+   *
+   * @param oldSessionId    - Existing session being rotated
+   * @param userId          - User scope
+   * @param tenantId        - Tenant scope
+   * @param newSessionId    - Replacement session ID
+   * @param rawRefreshToken - Raw refresh token for the replacement session
+   */
+  async rotateSession(
+    oldSessionId: string,
+    userId: string,
+    tenantId: string,
+    newSessionId: string,
+    rawRefreshToken: string,
+    deviceInfo?: string | null,
+    ipAddress?: string | null,
+    userAgent?: string | null,
+  ): Promise<SessionRecord> {
+    const refreshTokenHash = await this.passwordService.hash(rawRefreshToken);
+    const expiresAt = this.computeExpiresAt(
+      this.authConfig.refreshTokenExpiresIn,
+    );
+
+    const rotatedSession = await this.sessionRepository.revokeSessionChain(
+      oldSessionId,
+      userId,
+      tenantId,
+      {
+        id: newSessionId,
+        userId,
+        tenantId,
+        refreshTokenHash,
+        expiresAt,
+        deviceInfo: deviceInfo ?? null,
+        ipAddress: ipAddress ?? null,
+        userAgent: userAgent ?? null,
+      },
+    );
+
+    if (!rotatedSession) {
+      this.logger.warn(
+        `Concurrent refresh detected — userId=${userId}, sessionId=${oldSessionId}`,
+      );
+
+      await this.sessionRepository.revokeAll(userId, tenantId);
+
+      throw new UnauthorizedException(
+        'Refresh token is invalid or has already been used.',
+      );
+    }
+
+    this.logger.log(
+      `Session rotated — userId=${userId}, oldSessionId=${oldSessionId}, newSessionId=${newSessionId}`,
+    );
+
+    return rotatedSession;
   }
 
   // ─── Private Helpers ─────────────────────────────────────

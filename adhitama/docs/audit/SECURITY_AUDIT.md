@@ -15,7 +15,7 @@
 - `CurrentUser` decorator separates auth identity from business logic.
 
 ## 3. Problems Found
-- [S1] Refresh token replay vulnerability: refresh flow does not verify the token against the stored session hash.
+- [S1] Refresh token replay vulnerability: fixed by refresh token ownership verification and atomic session rotation.
 - [S1] Session reuse risk: `SessionService.revokeSession()` can revoke already-revoked sessions without requiring active session state.
 - [S1] Password generation uses `Math.random()` in `UserService.generateTemporaryPassword()`, which is cryptographically weak.
 - [S2] `mustChangePassword` is not enforced server-side for protected access.
@@ -32,7 +32,7 @@
 - Weak random generation for temporary passwords indicates a hidden implementation risk in business code.
 
 ## 5. Recommended Fix
-- Enforce refresh-token state by validating raw refresh tokens against stored hashes before rotation.
+- Enforce refresh-token state by validating raw refresh tokens against stored hashes before rotation (implemented).
 - Harden `revokeSession()` and refresh path to require active, non-expired, non-revoked sessions.
 - Replace temporary password generation with a crypto-secure generator.
 - Implement server-side enforcement of `mustChangePassword` and `emailVerifiedAt` where required by the blueprint.

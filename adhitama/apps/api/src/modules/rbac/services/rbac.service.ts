@@ -7,7 +7,6 @@ import {
   BadRequestException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { PrismaService } from '@infrastructure/prisma';
 import { SYSTEM_ROLE_NAMES, isSystemRole } from '@common/constants/system-role.constants';
 import { RbacRepository } from '../repositories/rbac.repository';
 import type {
@@ -85,7 +84,6 @@ export class RbacService {
 
   constructor(
     private readonly rbacRepository: RbacRepository,
-    private readonly prismaService: PrismaService,
   ) {}
 
   // ─── Role Read Operations ──────────────────────────────────
@@ -277,26 +275,19 @@ export class RbacService {
       throw new BadRequestException('permissionIds must not be empty');
     }
 
-    // Steps 4+5: validate permissions exist + assign — in a transaction
-    await this.prismaService.$transaction(async (tx) => {
-      // Validate all permissions exist
-      const existingCount = await tx.permission.count({
-        where: { id: { in: uniqueIds } },
-      });
+    // Steps 4+5: validate permissions exist + assign
+    const existingCount = await this.rbacRepository.countPermissionsByIds(
+      uniqueIds,
+    );
 
-      if (existingCount !== uniqueIds.length) {
-        throw new BadRequestException(
-          `One or more permissionIds do not exist. ` +
-            `Provided: ${uniqueIds.length}, found: ${existingCount}`,
-        );
-      }
+    if (existingCount !== uniqueIds.length) {
+      throw new BadRequestException(
+        `One or more permissionIds do not exist. ` +
+          `Provided: ${uniqueIds.length}, found: ${existingCount}`,
+      );
+    }
 
-      // Assign — skipDuplicates makes this idempotent
-      await tx.rolePermission.createMany({
-        data: uniqueIds.map((permissionId) => ({ roleId, permissionId })),
-        skipDuplicates: true,
-      });
-    });
+    await this.rbacRepository.assignPermissions(roleId, uniqueIds);
 
     // TODO: Audit log — PERMISSIONS_ASSIGNED (roleId, tenantId, permissionIds)
 
@@ -330,24 +321,15 @@ export class RbacService {
     this.assertNotSystemRole(role.name);
 
     // Steps 3+4: validate permission + remove — in a transaction
-    await this.prismaService.$transaction(async (tx) => {
-      // Validate permission exists (prevent silent no-op on typo)
-      const permExists = await tx.permission.findFirst({
-        where: { id: permissionId },
-        select: { id: true },
-      });
+    const permExists = await this.rbacRepository.permissionExists(permissionId);
 
-      if (!permExists) {
-        throw new BadRequestException(
-          `Permission with id "${permissionId}" does not exist`,
-        );
-      }
+    if (!permExists) {
+      throw new BadRequestException(
+        `Permission with id "${permissionId}" does not exist`,
+      );
+    }
 
-      // Remove — idempotent, no throw if not assigned
-      await tx.rolePermission.deleteMany({
-        where: { roleId, permissionId },
-      });
-    });
+    await this.rbacRepository.removePermission(roleId, permissionId);
 
     // TODO: Audit log — PERMISSION_REMOVED (roleId, tenantId, permissionId)
 
@@ -371,19 +353,7 @@ export class RbacService {
     id: string,
     tenantId: string,
   ): Promise<RoleRecord> {
-    const role = await this.prismaService.role.findFirst({
-      where: { id, tenantId },
-      select: {
-        id: true,
-        tenantId: true,
-        name: true,
-        description: true,
-        createdById: true,
-        updatedById: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const role = await this.rbacRepository.findRoleById(id, tenantId);
 
     if (!role) {
       throw new NotFoundException(`Role not found`);

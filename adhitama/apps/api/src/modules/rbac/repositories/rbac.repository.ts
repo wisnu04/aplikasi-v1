@@ -229,7 +229,21 @@ export class RbacRepository {
 
     return permissions;
   }
+  async countPermissionsByIds(permissionIds: string[]): Promise<number> {
+    if (permissionIds.length === 0) return 0;
 
+    return this.prismaService.permission.count({
+      where: { id: { in: permissionIds } },
+    });
+  }
+
+  async permissionExists(permissionId: string): Promise<boolean> {
+    const count = await this.prismaService.permission.count({
+      where: { id: permissionId },
+    });
+
+    return count > 0;
+  }
   // ─── RolePermission Operations ─────────────────────────────
 
   /**

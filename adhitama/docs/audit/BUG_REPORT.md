@@ -27,7 +27,7 @@
 - The current implementation reflects a phase-progress state rather than a finished secure release.
 
 ## 5. Recommended Fix
-- Validate refresh token state against the stored session hash before rotation.
+- Validate refresh token state against the stored session hash before rotation. (Implemented)
 - Require active and non-revoked sessions for refresh operations.
 - Migrate all direct `PrismaService` calls in services into repository methods.
 - Enforce `mustChangePassword` and email verification via guards or service-level blocks.

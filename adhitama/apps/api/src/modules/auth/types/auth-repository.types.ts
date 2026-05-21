@@ -58,3 +58,17 @@ export interface UserForAuth {
    */
   emailVerifiedAt: Date | null;
 }
+
+export interface UserProfileForAuth {
+  id: string;
+  tenantId: string;
+  roleId: string;
+  name: string;
+  email: string;
+  nip: string | null;
+  emailVerifiedAt: Date | null;
+  mustChangePassword: boolean;
+  avatarUrl: string | null;
+  contact: string | null;
+  address: string | null;
+}

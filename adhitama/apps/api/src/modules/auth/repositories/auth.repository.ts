@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@infrastructure/prisma';
-import type { UserForAuth } from '../types/auth-repository.types';
+import type {
+  UserForAuth,
+  UserProfileForAuth,
+} from '../types/auth-repository.types';
 
 /**
  * AuthRepository — database access for authentication user lookups.
@@ -118,6 +121,39 @@ export class AuthRepository {
         deletedAt: true,
         mustChangePassword: true,
         emailVerifiedAt: true,
+      },
+    });
+
+    return user;
+  }
+
+  async updateLastLogin(userId: string): Promise<number> {
+    const result = await this.prismaService.user.updateMany({
+      where: { id: userId },
+      data: { lastLoginAt: new Date() },
+    });
+
+    return result.count;
+  }
+
+  async findProfileById(
+    userId: string,
+    tenantId: string,
+  ): Promise<UserProfileForAuth | null> {
+    const user = await this.prismaService.user.findFirst({
+      where: { id: userId, tenantId, deletedAt: null },
+      select: {
+        id: true,
+        tenantId: true,
+        roleId: true,
+        name: true,
+        email: true,
+        nip: true,
+        emailVerifiedAt: true,
+        mustChangePassword: true,
+        avatarUrl: true,
+        contact: true,
+        address: true,
       },
     });
 

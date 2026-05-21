@@ -12,7 +12,7 @@
 - Documentation shows awareness of enterprise-grade requirements.
 
 ## 3. Key Risks
-- Refresh token replay and session validation gaps are the highest security risk.
+- Refresh token replay and session validation gaps have been addressed by refresh token ownership validation and atomic rotation.
 - Direct Prisma usage in services undermines clean architecture and increases maintenance risk.
 - Tenant resolution and security enforcement are incomplete, risking cross-tenant leakage.
 

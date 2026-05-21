@@ -26,19 +26,19 @@ Move the `lastLoginAt` update and display name lookup into repository methods or
 Refresh flow must rotate refresh tokens and validate stored session state.
 
 ## Current Implementation
-Refresh flow verifies refresh token signature, revokes the session by `sessionId`, then issues a new session and token pair.
+Refresh flow verifies refresh token signature, validates raw token ownership against the stored session hash, then atomically revokes the old session and creates a new one.
 
 ## Compliance Status
-❌ NON-COMPLIANT
+✅ FULLY COMPLIANT
 
 ## Risk Level
 S1
 
 ## Why This Is Dangerous
-The refresh token is not validated against the stored hashed refresh token, so replayed refresh tokens can still produce new sessions.
+N/A after the fix. The refresh flow now rejects stale, revoked, or mismatched refresh tokens and revokes all sessions on replay detection.
 
 ## Required Fix
-Hash the incoming refresh token and verify it against the session record before rotation.
+None. Continue monitoring and ensure session revocation remains atomic on rotation.
 
 ---
 

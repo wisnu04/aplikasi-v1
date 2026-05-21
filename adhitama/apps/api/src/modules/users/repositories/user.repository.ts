@@ -212,6 +212,32 @@ export class UserRepository {
     return user ? this.toUserRecord(user) : null;
   }
 
+  async findRoleById(
+    roleId: string,
+    tenantId: string,
+  ): Promise<{ id: string; name: string } | null> {
+    const role = await this.prismaService.role.findFirst({
+      where: { id: roleId, tenantId },
+      select: { id: true, name: true },
+    });
+
+    return role;
+  }
+
+  async countActiveUsersByRoleName(
+    roleName: string,
+    tenantId: string,
+  ): Promise<number> {
+    return this.prismaService.user.count({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status: 'ACTIVE',
+        role: { name: roleName },
+      },
+    });
+  }
+
   /**
    * findByIdIncludingDeleted() — find user by ID regardless of soft-delete state.
    *

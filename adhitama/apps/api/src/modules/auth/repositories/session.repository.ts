@@ -4,6 +4,7 @@ import type {
   CreateSessionInput,
   SessionForRevocation,
   SessionRecord,
+  SessionWithHash,
 } from '../types/session-repository.types';
 
 /**
@@ -134,6 +135,133 @@ export class SessionRepository {
     });
 
     return session;
+  }
+
+  /**
+   * Find a session by ID and user scope, including the stored refresh token hash.
+   *
+   * Used by SessionService to verify token ownership before rotating refresh tokens.
+   * @param sessionId - Session row ID
+   * @param userId    - User scope
+   */
+  async findSessionById(
+    sessionId: string,
+    userId: string,
+  ): Promise<SessionWithHash | null> {
+    const session = await this.prismaService.session.findFirst({
+      where: {
+        id: sessionId,
+        userId,
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        userId: true,
+        expiresAt: true,
+        revokedAt: true,
+        createdAt: true,
+        refreshTokenHash: true,
+      },
+    });
+
+    return session;
+  }
+
+  /**
+   * Find an active session by ID and user scope, including the stored refresh token hash.
+   *
+   * Used to validate refresh token ownership and prevent stale/replayed refresh requests.
+   * @param sessionId - Session row ID
+   * @param userId    - User scope
+   */
+  async findActiveSessionById(
+    sessionId: string,
+    userId: string,
+  ): Promise<SessionWithHash | null> {
+    const session = await this.prismaService.session.findFirst({
+      where: {
+        id: sessionId,
+        userId,
+        revokedAt: null,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        userId: true,
+        expiresAt: true,
+        revokedAt: true,
+        createdAt: true,
+        refreshTokenHash: true,
+      },
+    });
+
+    return session;
+  }
+
+  /**
+   * Revoke an existing active session and create a rotated replacement atomically.
+   *
+   * This is the core refresh token rotation guard. It ensures that the old
+   * session is revoked and the new session is created in a single transaction.
+   * If the old session is already revoked, the rotation fails safely.
+   *
+   * @param sessionId     - Existing session being rotated
+   * @param userId        - User scope
+   * @param tenantId      - Tenant scope
+   * @param newSession    - New session payload, including hashed refresh token
+   * @returns Created SessionRecord or null when rotation could not proceed
+   */
+  async revokeSessionChain(
+    sessionId: string,
+    userId: string,
+    tenantId: string,
+    newSession: CreateSessionInput,
+  ): Promise<SessionRecord | null> {
+    const rotatedSession = await this.prismaService.$transaction(
+      async (tx) => {
+        const revoked = await tx.session.updateMany({
+          where: {
+            id: sessionId,
+            userId,
+            tenantId,
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: new Date(),
+          },
+        });
+
+        if (revoked.count !== 1) {
+          return null;
+        }
+
+        return tx.session.create({
+          data: {
+            ...(newSession.id ? { id: newSession.id } : {}),
+            tenantId: newSession.tenantId,
+            userId: newSession.userId,
+            refreshTokenHash: newSession.refreshTokenHash,
+            expiresAt: newSession.expiresAt,
+            deviceInfo: newSession.deviceInfo ?? null,
+            ipAddress: newSession.ipAddress ?? null,
+            userAgent: newSession.userAgent ?? null,
+          },
+          select: {
+            id: true,
+            tenantId: true,
+            userId: true,
+            expiresAt: true,
+            revokedAt: true,
+            createdAt: true,
+          },
+        });
+      },
+    );
+
+    return rotatedSession;
   }
 
   /**

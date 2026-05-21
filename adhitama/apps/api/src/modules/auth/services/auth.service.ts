@@ -3,7 +3,6 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { PrismaService } from '@infrastructure/prisma';
 import { PasswordService } from '@infrastructure/password';
 import { TokenService } from '@core/auth';
 import type { TokenPair } from '@core/auth';
@@ -138,7 +137,6 @@ export class AuthService {
     private readonly sessionService: SessionService,
     private readonly tokenService: TokenService,
     private readonly passwordService: PasswordService,
-    private readonly prismaService: PrismaService,
   ) {}
 
   // ─── Login ─────────────────────────────────────────────────
@@ -232,18 +230,12 @@ export class AuthService {
     });
 
     // ── Step 9: Update lastLoginAt (fire-and-forget) ────────
-    void this.prismaService.user
-      .update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-        select: { id: true },
-      })
-      .catch((err: unknown) => {
-        this.logger.error(
-          `lastLoginAt update failed — userId=${user.id}: ` +
-            (err instanceof Error ? err.message : String(err)),
-        );
-      });
+    void this.authRepository.updateLastLogin(user.id).catch((err: unknown) => {
+      this.logger.error(
+        `lastLoginAt update failed — userId=${user.id}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    });
 
     // AUDIT POINT: LOGIN_SUCCESS — userId, sessionId, tenantId, ipAddress
 
@@ -253,10 +245,10 @@ export class AuthService {
 
     // ── Step 10: Fetch name + return DTO ───────────────────
     // name is not in UserForAuth (presentation field, not auth field)
-    const displayUser = await this.prismaService.user.findUnique({
-      where: { id: user.id },
-      select: { name: true },
-    });
+    const displayUser = await this.authRepository.findProfileById(
+      user.id,
+      user.tenantId,
+    );
 
     return {
       accessToken: tokenPair.accessToken,
@@ -291,11 +283,13 @@ export class AuthService {
     // ── Step 1: Verify ──────────────────────────────────────
     const payload = this.tokenService.verifyRefreshToken(rawRefreshToken);
 
-    // ── Step 2: Revoke old session ──────────────────────────
-    await this.sessionService.revokeSession({
-      sessionId: payload.sessionId,
-      userId: payload.sub,
-    });
+    // ── Step 2: Validate ownership of the raw refresh token before rotation ──
+    await this.sessionService.verifyRefreshTokenOwnership(
+      rawRefreshToken,
+      payload.sessionId,
+      payload.sub,
+      payload.tenantId,
+    );
 
     // ── Step 3: Pre-generate new sessionId ─────────────────
     const newSessionId = crypto.randomUUID();
@@ -308,16 +302,17 @@ export class AuthService {
       roleId: payload.roleId,
     });
 
-    // ── Step 5: Create new session ──────────────────────────
-    await this.sessionService.createSession({
-      id: newSessionId,
-      userId: payload.sub,
-      tenantId: payload.tenantId,
-      rawRefreshToken: newPair.refreshToken,
-      deviceInfo: deviceInfo ?? null,
-      ipAddress: ipAddress ?? null,
-      userAgent: userAgent ?? null,
-    });
+    // ── Step 5: Atomically revoke and create session ─────────
+    await this.sessionService.rotateSession(
+      payload.sessionId,
+      payload.sub,
+      payload.tenantId,
+      newSessionId,
+      newPair.refreshToken,
+      deviceInfo ?? null,
+      ipAddress ?? null,
+      userAgent ?? null,
+    );
 
     // AUDIT POINT: REFRESH_TOKEN_ROTATED — userId, oldSessionId, newSessionId
 
@@ -370,22 +365,10 @@ export class AuthService {
    * @param tenantId - From AuthUser
    */
   async getMe(userId: string, tenantId: string): Promise<MeResponse> {
-    const user = await this.prismaService.user.findFirst({
-      where: { id: userId, tenantId, deletedAt: null },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        nip: true,
-        roleId: true,
-        tenantId: true,
-        emailVerifiedAt: true,
-        mustChangePassword: true,
-        avatarUrl: true,
-        contact: true,
-        address: true,
-      },
-    });
+    const user = await this.authRepository.findProfileById(
+      userId,
+      tenantId,
+    );
 
     if (!user) {
       // Should not happen — JwtStrategy already validated the user exists.

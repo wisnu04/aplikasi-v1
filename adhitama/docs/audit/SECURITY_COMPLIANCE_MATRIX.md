@@ -12,11 +12,11 @@ Overall Status: ⚠ PARTIALLY COMPLIANT
 ---
 
 ## Refresh token rotation
-**Current Implementation:** Refresh flow rotates sessions by revoking old session and issuing a new one.
-**Compliance Status:** ⚠ PARTIALLY COMPLIANT
+**Current Implementation:** Refresh flow rotates sessions by validating refresh token ownership, revoking the old session, and issuing a new signed token pair atomically.
+**Compliance Status:** ✅ FULLY COMPLIANT
 **Risk Level:** S1
-**Why This Is Dangerous:** The refresh flow does not verify the raw refresh token against the stored session hash, so replayed refresh tokens can still be accepted.
-**Required Fix:** Validate refresh token against the hashed session record before rotation.
+**Why This Is Dangerous:** N/A after fix. The refresh flow now verifies the raw refresh token against the stored session hash and binds rotation to an active session.
+**Required Fix:** None. Maintain refresh token ownership checks and transactional session rotation.
 
 ---
 
@@ -30,11 +30,11 @@ Overall Status: ⚠ PARTIALLY COMPLIANT
 ---
 
 ## Refresh replay protection
-**Current Implementation:** Refresh token verification only checks JWT signature/expiry via TokenService; DB lookup is by sessionId only.
-**Compliance Status:** ❌ NON-COMPLIANT
+**Current Implementation:** Refresh token verification now checks JWT signature/expiry and verifies the raw refresh token against the stored session hash. Old sessions are revoked atomically during rotation.
+**Compliance Status:** ✅ FULLY COMPLIANT
 **Risk Level:** S1
-**Why This Is Dangerous:** Stolen or replayed refresh tokens can be used repeatedly to obtain new access tokens.
-**Required Fix:** Implement DB hash lookup of refresh token on refresh and reject tokens that do not match the stored session hash.
+**Why This Is Dangerous:** N/A after fix. Stolen or replayed refresh tokens are rejected, and detected replay attempts revoke all user sessions.
+**Required Fix:** None. Monitor replay logs and preserve no-raw-token storage discipline.
 
 ---
 
