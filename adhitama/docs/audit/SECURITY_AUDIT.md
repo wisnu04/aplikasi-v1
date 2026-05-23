@@ -44,3 +44,17 @@
 - Session and token fixes are central to multi-device support and replay protection.
 - Password generation and tenant handling affect user onboarding and tenant isolation.
 - A stronger security foundation reduces later remediation costs and protects enterprise users.
+
+## Architecture Validation (Phase S1.2)
+
+- Authentication & refresh token validation:
+	- Refresh rotation and ownership verification implemented and use repository-level atomic rotation (`prisma.$transaction`) ✅
+	- `SessionService` uses `SessionRepository.revokeSessionChain` which is transactionally safe ✅
+
+- Remaining security cautions:
+	- Some RBAC operations (permission assign/remove, role delete) do validation then mutate without a single DB transaction — potential TOCTOU window; recommend transactionalize these flows ⚠️
+	- Certain components (JwtStrategy, PermissionGuard) access Prisma directly; ensure all lookups include tenant scoping and do not expose sensitive selects.
+
+- Immediate hardening tasks:
+	- Add DB-level tenant scoping to mutations that use `where: { id }` without `tenantId`.
+	- Add a CI rule to detect `prisma.` usage in service-layer files.

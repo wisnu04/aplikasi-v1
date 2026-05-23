@@ -73,6 +73,7 @@ export interface UserListQuery {
   page?: number;
   limit?: number;
   search?: string;
-  sortBy?: 'name' | 'email' | 'createdAt' | 'status';
+  // Allow additional sortable fields exposed by DTO (nip, updatedAt)
+  sortBy?: 'name' | 'email' | 'createdAt' | 'status' | 'nip' | 'updatedAt';
   sortOrder?: 'asc' | 'desc';
 }

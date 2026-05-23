@@ -26,3 +26,18 @@
 - Security hardening of auth and session handling will deliver the largest immediate benefit.
 - Improving architecture consistency will make future financial, rental, and reporting modules more reliable.
 - Closing the documentation-to-code gap will reduce audit failure risk during enterprise deployment.
+
+## Architecture Validation (Phase S1.2) — Summary
+
+- Validated transaction-safe flows:
+	- Refresh token rotation (session revoke+create) is atomic via `prisma.$transaction()` in `SessionRepository` ✅
+
+- Items requiring follow-up:
+	- RBAC multi-step mutations (assign/remove permissions, delete role) lack a single DB transaction surrounding validate+mutate and should be migrated to transactional repository APIs ⚠️
+	- Update/Delete mutations that rely on `where: { id }` without tenant scoping should be converted to tenant-scoped `updateMany`/`deleteMany` or use transactionally-checked deletion to prevent cross-tenant risk ⚠️
+
+- CI status from this validation run:
+	- `type-check`: PASS
+	- `build`: PASS
+	- `lint`: SKIPPED/FAILED due to missing dev dependency in this environment (`typescript-eslint`) — run in CI to confirm
+	- `test`: PASS (unit tests run locally)

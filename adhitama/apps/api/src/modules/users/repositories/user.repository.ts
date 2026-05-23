@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@infrastructure/prisma';
-import type { UserRecord, PaginatedUsers, UserListQuery } from '../types/user.types';
+import type { UserRecord, UserListQuery } from '../types/user.types';
 
 // Repository layer only.
 // No business logic allowed here.
@@ -118,7 +118,7 @@ export class UserRepository {
   async findAll(
     tenantId: string,
     query: UserListQuery,
-  ): Promise<PaginatedUsers> {
+  ): Promise<{ data: UserRecord[]; meta: { page: number; limit: number; totalItems: number; totalPages: number } }> {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 10));
     const skip = (page - 1) * limit;
@@ -294,7 +294,7 @@ export class UserRepository {
         email: data.email,
         passwordHash: data.passwordHash,
         nip: data.nip ?? null,
-        status: data.status ?? 'ACTIVE',
+        status: (data.status ?? 'ACTIVE') as any,
         mustChangePassword: data.mustChangePassword ?? true,
         address: data.address ?? null,
         contact: data.contact ?? null,
@@ -358,7 +358,7 @@ export class UserRepository {
 
     const user = await this.prismaService.user.update({
       where: { id },
-      data: { status },
+      data: { status: status as any },
       select: this.userSelect,
     });
 

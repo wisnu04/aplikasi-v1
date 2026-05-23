@@ -34,3 +34,17 @@
 - Reducing technical debt now will make later financial and rental workflows easier to secure.
 - A cleaner service/repository contract improves maintainability and reduces the chance of security regressions.
 - These changes support enterprise-grade scaling and auditability.
+
+## Architecture Validation (Phase S1.2) — Technical Debt Addendum
+
+- Remaining technical debt discovered during S1.2:
+	- Several repository mutations use `where: { id }` with `prisma.update()`/`delete()` instead of tenant-scoped `updateMany`/`deleteMany` (user.repository, rbac.repository, auth.repository). Even when pre-checks exist, prefer in-query tenant scoping to avoid race conditions.
+	- RBAC assign/remove permission flows should be transactional to avoid partial mutation after validation.
+	- `JwtStrategy` and some guards still access `PrismaService` directly — document and harden tenant-scope checks.
+	- Linting dev-deps are missing in this execution environment; ensure CI installs devDependencies before lint step.
+
+- Suggested next cleanup sprint items:
+	1. Migrate RBAC validate+mutate flows into repository-level transactions.
+	2. Convert single-id updates/deletes to tenant-scoped updateMany/deleteMany or transactional patterns.
+	3. Add CI rule to detect `prisma.` usage in `services/` files.
+	4. Replace `Math.random()` based temporary password generator with `crypto.randomBytes` implementation.

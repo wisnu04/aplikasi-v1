@@ -33,3 +33,24 @@
 - Correcting boundary violations will make future feature modules more stable and easier to test.
 - Tenant isolation, security, and RBAC all depend on this architectural consistency.
 - The impact is cross-cutting: auth, user management, RBAC, and future financial workflows all benefit.
+
+## Architecture Validation (Phase S1.2)
+
+- Transactions validated:
+	- `SessionRepository.revokeSessionChain`: uses `prisma.$transaction()` ✅
+	- `SessionService.rotateSession` / `AuthService.refreshTokens`: rotation flow delegates to repository transaction ✅
+	- Multi-step RBAC flows (`assignPermissions`, `removePermission`, `deleteRole`) currently lack an explicit DB transaction at service/repository boundary — RECOMMEND move validation+mutations into a repository transaction or expose a transactional repository API ⚠️
+
+- Repository boundary findings:
+	- Repositories correctly encapsulate most tenant-scoped lookups and reuse `select` objects for predictable fields.
+	- Several mutation paths still use `where: { id }` with `prisma.update()` / `prisma.delete()` (users, roles, auth.lastLogin) — while pre-checks exist, prefer `updateMany`/`deleteMany` with `tenantId` to enforce tenant-scoping at DB level ⚠️
+
+- Architecture violations remaining:
+	- `RbacService.assignPermissions` / `removePermission`: missing explicit transactional guard for validate+mutate sequence.
+	- Several repository mutation calls use unique-id deletes/updates without tenant in the `where` clause (see TECHNICAL_DEBT for file list).
+	- `JwtStrategy` and some guards still call `PrismaService` directly for performance-sensitive lookups — acceptable if documented, but should be audited for tenant-safety.
+
+- Recommendation summary:
+	- Move multi-step mutation transactions into repository helper methods (transactional repository APIs).
+	- Replace `where: { id }` updates/deletes with tenant-scoped `updateMany`/`deleteMany` where practical.
+	- Add a lightweight architecture lint rule or CI check to detect `prisma.` in service files.
